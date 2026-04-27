@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+venv_win/
+
+# Local data and configs (보안 및 개인정보 보호를 위해 실제 데이터는 제외)
+data/*.csv
+data/*.json
+dashboard_config.json
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
