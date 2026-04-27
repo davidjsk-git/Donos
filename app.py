@@ -7,221 +7,328 @@ import os
 import json
 from datetime import datetime
 
-st.set_page_config(page_title="통합 후원금 및 CRM 시스템", layout="wide")
+# 페이지 설정
+st.set_page_config(page_title="Donos Liquid Dashboard", page_icon="💧", layout="wide")
 
-# 데이터 및 설정 저장 경로 설정
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(BASE_DIR, "data")
-CONFIG_FILE = os.path.join(BASE_DIR, "dashboard_config.json")
-CRM_FILE = os.path.join(DATA_DIR, "crm_master.json")
+# Liquid Glass Custom CSS
+st.markdown("""
+<style>
+    /* Liquid Glass Background */
+    .stApp {
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        background-attachment: fixed;
+    }
+    
+    /* Glassmorphism Card Style */
+    div.stMetric, div.stDataFrame, .stPlotlyChart, .stAlert, div.row-widget.stButton {
+        background: rgba(255, 255, 255, 0.25);
+        box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.1);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        border-radius: 15px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        padding: 15px;
+        margin-bottom: 10px;
+    }
+    
+    /* Sidebar Styling */
+    section[data-testid="stSidebar"] {
+        background: rgba(255, 255, 255, 0.4) !important;
+        backdrop-filter: blur(12px);
+        border-right: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    
+    /* Headers */
+    h1, h2, h3 {
+        color: #2c3e50;
+        font-family: 'Pretendard', sans-serif;
+        font-weight: 700;
+        letter-spacing: -0.5px;
+    }
+    
+    /* Custom Button */
+    .stButton > button {
+        background: rgba(100, 149, 237, 0.3);
+        backdrop-filter: blur(4px);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        border-radius: 10px;
+        color: #2c3e50;
+        transition: all 0.3s ease;
+    }
+    .stButton > button:hover {
+        background: rgba(100, 149, 237, 0.5);
+        transform: translateY(-2px);
+    }
+    
+    /* Metric Labels */
+    [data-testid="stMetricLabel"] {
+        color: #5d6d7e !important;
+        font-weight: 600;
+    }
+</style>
+""", unsafe_allow_html=True)
 
+# 데이터 디렉토리 설정
+DATA_DIR = "data"
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
 
-# ------------------------------------------------------------------------------
-# 데이터 로드 및 저장 함수
-# ------------------------------------------------------------------------------
-def load_global_config():
-    default_config = {"organizations": ["HOPE", "GLFocus"], "current_org": "HOPE", "org_settings": {}}
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-                for key in default_config:
-                    if key not in config:
-                        config[key] = default_config[key]
-                return config
-        except:
-            return default_config
-    return default_config
+CONFIG_FILE = "dashboard_config.json"
+CRM_FILE = os.path.join(DATA_DIR, "crm_master.json")
 
-def save_global_config(config):
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+            # 하위 호환성 보장
+            if 'organizations' not in config:
+                config['organizations'] = ["HOPE", "GLFocus"]
+            if 'current_org' not in config:
+                config['current_org'] = "HOPE"
+            if 'base_balances' not in config:
+                config['base_balances'] = {org: 0 for org in config['organizations']}
+            return config
+    return {"organizations": ["HOPE", "GLFocus"], "current_org": "HOPE", "base_balances": {"HOPE": 0, "GLFocus": 0}}
+
+def save_config(config):
     with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
         json.dump(config, f, ensure_ascii=False, indent=4)
 
-def load_crm_data():
+def load_crm():
     if os.path.exists(CRM_FILE):
-        try:
-            with open(CRM_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except:
-            return {}
+        with open(CRM_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
     return {}
 
-def save_crm_data(crm_data):
+def save_crm(crm_data):
     with open(CRM_FILE, 'w', encoding='utf-8') as f:
         json.dump(crm_data, f, ensure_ascii=False, indent=4)
 
-def get_org_data_path(org_name):
-    return os.path.join(DATA_DIR, f"{org_name}_data.csv")
+# 세션 상태 초기화
+if 'config' not in st.session_state:
+    st.session_state.config = load_config()
+if 'crm' not in st.session_state:
+    st.session_state.crm = load_crm()
 
-def load_org_data(org_name):
-    path = get_org_data_path(org_name)
-    if os.path.exists(path):
-        df = pd.read_csv(path)
+# 사이드바 설정
+st.sidebar.title("💧 Donos Liquid")
+st.sidebar.markdown("---")
+
+menu = st.sidebar.radio("📋 메뉴 선택", ["단체별 대시보드", "통합 분석 리포트", "후원자 관계 관리(CRM)"])
+
+# 단체 선택 및 추가
+st.sidebar.markdown("### 🏢 단체 관리")
+current_org = st.sidebar.selectbox("관리할 단체 선택", st.session_state.config['organizations'], 
+                                 index=st.session_state.config['organizations'].index(st.session_state.config['current_org']))
+
+if current_org != st.session_state.config['current_org']:
+    st.session_state.config['current_org'] = current_org
+    save_config(st.session_state.config)
+    st.rerun()
+
+with st.sidebar.expander("➕ 새 단체 추가"):
+    new_org_name = st.text_input("단체명 입력")
+    if st.button("추가하기"):
+        if new_org_name and new_org_name not in st.session_state.config['organizations']:
+            st.session_state.config['organizations'].append(new_org_name)
+            st.session_state.config['base_balances'][new_org_name] = 0
+            save_config(st.session_state.config)
+            st.success(f"'{new_org_name}' 단체가 추가되었습니다.")
+            st.rerun()
+
+# 기초 잔액 설정
+st.sidebar.markdown("### 💰 잔액 설정")
+base_balance = st.sidebar.number_input(f"{current_org} 기초 후원 잔액", 
+                                     value=st.session_state.config['base_balances'].get(current_org, 0), step=10000)
+if base_balance != st.session_state.config['base_balances'].get(current_org, 0):
+    st.session_state.config['base_balances'][current_org] = base_balance
+    save_config(st.session_state.config)
+    st.sidebar.success("기초 잔액이 저장되었습니다.")
+
+# 데이터 로드 함수
+def get_org_data(org):
+    file_path = os.path.join(DATA_DIR, f"{org}_data.csv")
+    if os.path.exists(file_path):
+        df = pd.read_csv(file_path)
         df['날짜'] = pd.to_datetime(df['날짜'])
         return df
-    return pd.DataFrame(columns=['날짜', '계정과목', 'ㅎ원자명', '전표제목', '적요', '지출 OR 차변', '수입 OR 대변'])
+    return pd.DataFrame(columns=["날짜", "계정과목", "ㅎ원자명", "전표제목", "적요", "지출 OR 차변", "수입 OR 대변"])
 
-def save_org_data(org_name, df):
-    path = get_org_data_path(org_name)
-    df.to_csv(path, index=False, encoding='utf-8-sig')
-
-# ------------------------------------------------------------------------------
-# 세션 상태 초기화
-# ------------------------------------------------------------------------------
-if 'config' not in st.session_state:
-    st.session_state.config = load_global_config()
-if 'crm' not in st.session_state:
-    st.session_state.crm = load_crm_data()
-
-# ------------------------------------------------------------------------------
-# 사이드바: 메뉴 및 단체 관리
-# ------------------------------------------------------------------------------
-st.sidebar.title("🏢 후원금 및 CRM 시스템")
-menu = st.sidebar.radio("메뉴 선택", ["단체별 대시보드", "통합 분석 리포트", "후원자 관계 관리(CRM)"])
-
+# 메인 화면 로직
 if menu == "단체별 대시보드":
-    current_org = st.sidebar.selectbox("관리할 단체 선택", st.session_state.config["organizations"])
+    st.title(f"🏢 {current_org} 후원금 대시보드")
     
-    with st.sidebar.expander("➕ 새 단체 추가"):
-        new_org_name = st.text_input("단체명 입력")
-        if st.button("추가"):
-            if new_org_name and new_org_name not in st.session_state.config["organizations"]:
-                st.session_state.config["organizations"].append(new_org_name)
-                save_global_config(st.session_state.config)
-                st.success(f"'{new_org_name}' 추가됨")
-                st.rerun()
-
-    st.sidebar.markdown("---")
-    df = load_org_data(current_org)
-    org_settings = st.session_state.config.get("org_settings", {})
-    current_org_settings = org_settings.get(current_org, {"initial_balance": 0.0})
+    # 파일 업로드
+    uploaded_file = st.sidebar.file_uploader("HTML 또는 CSV 파일 업로드", type=['htm', 'html', 'csv'])
     
-    new_init_bal = st.sidebar.number_input(f"{current_org} 기초 잔액", value=float(current_org_settings.get("initial_balance", 0.0)), format="%.0f")
-    if new_init_bal != current_org_settings.get("initial_balance"):
-        st.session_state.config["org_settings"][current_org] = {"initial_balance": new_init_bal}
-        save_global_config(st.session_state.config)
-        st.sidebar.success("기초 잔액 저장됨")
-
-    st.sidebar.subheader("📁 데이터 업로드")
-    uploaded_file = st.sidebar.file_uploader("HTML/CSV 파일 업로드", type=["htm", "html", "csv"])
+    df = get_org_data(current_org)
+    
     if uploaded_file:
-        file_ext = os.path.splitext(uploaded_file.name)[1].lower()
-        temp_path = os.path.join(DATA_DIR, f"temp_{current_org}{file_ext}")
-        with open(temp_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-        new_df = parse_donation_html(temp_path) if file_ext in ['.htm', '.html'] else parse_donation_csv(temp_path)
-        if not new_df.empty:
-            df = pd.concat([df, new_df]).drop_duplicates().reset_index(drop=True)
-            save_org_data(current_org, df)
-            st.sidebar.success("업로드 완료!")
-            os.remove(temp_path)
+        if uploaded_file.name.endswith('.csv'):
+            new_data = parse_donation_csv(uploaded_file)
+        else:
+            new_data = parse_donation_html(uploaded_file)
+            
+        if not new_data.empty:
+            if df.empty:
+                df = new_data
+            else:
+                df = pd.concat([df, new_data]).drop_duplicates(subset=["날짜", "ㅎ원자명", "수입 OR 대변", "지출 OR 차변"], keep='last')
+            
+            df = df.sort_values('날짜', ascending=False)
+            df.to_csv(os.path.join(DATA_DIR, f"{current_org}_data.csv"), index=False)
+            st.success(f"{uploaded_file.name} 데이터가 성공적으로 통합되었습니다!")
             st.rerun()
 
-    st.title(f"📊 {current_org} 대시보드")
-    if df.empty:
-        st.info("데이터가 없습니다.")
-    else:
+    if not df.empty:
+        # 요약 지표
+        total_income = df['수입 OR 대변'].sum()
+        total_expense = df['지출 OR 차변'].sum()
+        current_balance = base_balance + total_income - total_expense
+        
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("기초 잔액", f"{base_balance:,.0f} 원")
+        m2.metric("총 수입", f"{total_income:,.0f} 원")
+        m3.metric("총 지출", f"{total_expense:,.0f} 원")
+        m4.metric("현재 잔액", f"{current_balance:,.0f} 원", f"{total_income - total_expense:,.0f} 원")
+
+        # 월별 추이 그래프
+        st.subheader("📈 월별 수입 및 지출 추이")
         df['월'] = df['날짜'].dt.strftime('%Y-%m')
-        total_in = df['수입 OR 대변'].sum()
-        total_out = df['지출 OR 차변'].sum()
-        curr_bal = new_init_bal + total_in - total_out
+        monthly_df = df.groupby('월')[['수입 OR 대변', '지출 OR 차변']].sum().reset_index()
+        monthly_df = monthly_df.sort_values('월')
         
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("기초 잔액", f"{new_init_bal:,.0f}")
-        c2.metric("총 수입", f"{total_in:,.0f}")
-        c3.metric("총 지출", f"{total_out:,.0f}")
-        c4.metric("현재 잔액", f"{curr_bal:,.0f}")
-        
-        monthly = df.groupby('월').agg({'수입 OR 대변':'sum', '지출 OR 차변':'sum'}).reset_index().sort_values('월')
-        fig = px.line(monthly, x='월', y=['수입 OR 대변', '지출 OR 차변'], markers=True, template="plotly_white")
-        fig.update_layout(yaxis=dict(tickformat=",d"))
+        fig = go.Figure()
+        fig.add_trace(go.Bar(x=monthly_df['월'], y=monthly_df['수입 OR 대변'], name='수입', marker_color='#3498db', opacity=0.7))
+        fig.add_trace(go.Bar(x=monthly_df['월'], y=monthly_df['지출 OR 차변'], name='지출', marker_color='#e74c3c', opacity=0.7))
+        fig.update_layout(
+            barmode='group', 
+            paper_bgcolor='rgba(0,0,0,0)', 
+            plot_bgcolor='rgba(0,0,0,0)',
+            yaxis=dict(tickformat=',d', title='금액 (원)'),
+            margin=dict(l=20, r=20, t=30, b=20)
+        )
         st.plotly_chart(fig, use_container_width=True)
-        
-        st.subheader("📝 전체 내역")
-        edited_df = st.data_editor(df.drop(columns=['월']), num_rows="dynamic", use_container_width=True)
+
+        # 데이터 편집 섹션
+        st.subheader("📝 전체 내역 및 편집")
+        edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True, hide_index=True)
         if st.button("변경사항 저장"):
-            save_org_data(current_org, edited_df)
-            st.success("저장 완료")
+            edited_df.to_csv(os.path.join(DATA_DIR, f"{current_org}_data.csv"), index=False)
+            st.success("데이터가 저장되었습니다.")
             st.rerun()
+    else:
+        st.info("데이터가 없습니다. 사이드바에서 파일을 업로드하거나 내역을 추가해 주세요.")
 
 elif menu == "통합 분석 리포트":
     st.title("🌐 통합 분석 리포트")
+    
     all_data = []
-    org_summaries = []
-    for org in st.session_state.config["organizations"]:
-        df_org = load_org_data(org)
+    total_base = sum(st.session_state.config['base_balances'].values())
+    
+    org_stats = []
+    for org in st.session_state.config['organizations']:
+        df_org = get_org_data(org)
         if not df_org.empty:
             df_org['단체'] = org
-            df_analysis = df_org.copy()
+            all_data.append(df_org)
+            
+            # 단체별 순수 후원금 계산 (GLFocus의 계좌간거래 제외)
+            pure_income = df_org['수입 OR 대변'].sum()
             if org == 'GLFocus':
-                df_analysis = df_analysis[~((df_analysis['계정과목'] == '계좌간거래') & (df_analysis['수입 OR 대변'] > 0))]
-            all_data.append(df_analysis)
-            init_bal = st.session_state.config.get("org_settings", {}).get(org, {}).get("initial_balance", 0.0)
-            org_summaries.append({
-                "단체": org, "기초 잔액": init_bal, "총 수입(장부)": df_org['수입 OR 대변'].sum(),
-                "순수 후원수입": df_analysis['수입 OR 대변'].sum(), "총 지출": df_org['지출 OR 차변'].sum(),
-                "현재 잔액": init_bal + df_org['수입 OR 대변'].sum() - df_org['지출 OR 차변'].sum()
+                pure_income -= df_org[df_org['계정과목'] == '계좌간거래']['수입 OR 대변'].sum()
+            
+            org_stats.append({
+                "단체": org,
+                "기초잔액": st.session_state.config['base_balances'].get(org, 0),
+                "총수입(장부)": df_org['수입 OR 대변'].sum(),
+                "순수후원수입": pure_income,
+                "총지출": df_org['지출 OR 차변'].sum(),
+                "현재잔액": st.session_state.config['base_balances'].get(org, 0) + df_org['수입 OR 대변'].sum() - df_org['지출 OR 차변'].sum()
             })
-    if not all_data:
-        st.info("데이터가 없습니다.")
-    else:
+    
+    if all_data:
         full_df = pd.concat(all_data)
+        
+        # 통합 지표
+        total_pure_income = sum(s['순수후원수입'] for s in org_stats)
+        total_expense = sum(s['총지출'] for s in org_stats)
+        total_balance = sum(s['현재잔액'] for s in org_stats)
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric("전체 기초 잔액", f"{total_base:,.0f} 원")
+        c2.metric("전체 순수 후원수입", f"{total_pure_income:,.0f} 원")
+        c3.metric("전체 합산 잔액", f"{total_balance:,.0f} 원")
+        
+        st.subheader("📊 단체별 재무 현황 비교")
+        st.table(pd.DataFrame(org_stats).set_index("단체").style.format("{:,.0f}"))
+        
+        # 수입 비교 그래프 (순수 후원금 기준)
+        st.subheader("📈 단체별 순수 수입 비교 추이")
         full_df['월'] = full_df['날짜'].dt.strftime('%Y-%m')
-        summary_df = pd.DataFrame(org_summaries)
         
-        st.subheader("💰 전체 재무 통합 현황")
-        t_col1, t_col2, t_col3, t_col4 = st.columns(4)
-        t_col1.metric("전체 기초 잔액", f"{summary_df['기초 잔액'].sum():,.0f}")
-        t_col2.metric("전체 총 수입", f"{summary_df['총 수입(장부)'].sum():,.0f}")
-        t_col3.metric("전체 총 지출", f"{summary_df['총 지출'].sum():,.0f}")
-        t_col4.metric("전체 합산 잔액", f"{summary_df['현재 잔액'].sum():,.0f}")
-        st.table(summary_df.style.format({"기초 잔액": "{:,.0f}", "총 수입(장부)": "{:,.0f}", "순수 후원수입": "{:,.0f}", "총 지출": "{:,.0f}", "현재 잔액": "{:,.0f}"}))
+        # GLFocus 계좌간거래 제외 필터링
+        plot_df = full_df.copy()
+        mask = (plot_df['단체'] == 'GLFocus') & (plot_df['계정과목'] == '계좌간거래')
+        plot_df = plot_df[~mask]
         
-        st.subheader("📊 단체별 수입 비교 추이")
-        comp_df = full_df.groupby(['월', '단체'])['수입 OR 대변'].sum().reset_index()
-        fig_comp = px.bar(comp_df, x='월', y='수입 OR 대변', color='단체', barmode='group', template="plotly_white")
-        fig_comp.update_layout(yaxis=dict(tickformat=",d"))
+        monthly_comp = plot_df.groupby(['월', '단체'])['수입 OR 대변'].sum().reset_index()
+        fig_comp = px.bar(monthly_comp, x='월', y='수입 OR 대변', color='단체', barmode='group',
+                         color_discrete_sequence=['#3498db', '#2ecc71', '#9b59b6', '#f1c40f'])
+        fig_comp.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', yaxis=dict(tickformat=',d'))
         st.plotly_chart(fig_comp, use_container_width=True)
         
+        # 후원자 분석 (계좌간거래 제외)
         st.divider()
-        st.subheader("🔍 후원자 패턴 분석 (순수 후원 기준)")
-        donor_stats = full_df[full_df['수입 OR 대변'] > 0].groupby('ㅎ원자명').agg(
-            후원횟수=('날짜', 'count'), 후원개월수=('월', 'nunique'), 마지막후원일=('날짜', 'max'), 누적후원금=('수입 OR 대변', 'sum')
-        ).reset_index().rename(columns={'ㅎ원자명': '후원자명'})
+        st.subheader("👥 심층 후원자 패턴 분석")
         
-        all_months = sorted(full_df['월'].unique())
-        total_months_count = len(all_months)
-        six_months_ago = pd.Timestamp.now() - pd.DateOffset(months=6)
+        donor_df = plot_df[plot_df['수입 OR 대변'] > 0].copy()
+        donor_stats = donor_df.groupby('ㅎ원자명').agg({
+            '수입 OR 대변': 'sum',
+            '날짜': ['count', 'min', 'max', lambda x: x.dt.to_period('M').nunique()]
+        }).reset_index()
+        donor_stats.columns = ['후원자명', '누적후원액', '후원횟수', '최초후원일', '마지막후원일', '후원개월수']
         
-        loyal_donors = donor_stats[donor_stats['후원개월수'] >= total_months_count]
-        one_time_donors = donor_stats[donor_stats['후원횟수'] == 1]
-        irregular_donors = donor_stats[(donor_stats['후원횟수'] > 1) & (donor_stats['후원개월수'] < total_months_count) & (donor_stats['마지막후원일'] >= six_months_ago)]
-        
-        col_a, col_b = st.columns(2)
-        with col_a:
+        # 1. TOP 5
+        col1, col2 = st.columns(2)
+        with col1:
             st.markdown("🏆 **누적 후원 TOP 5**")
-            top5 = donor_stats.sort_values('누적후원금', ascending=False).head(5)
-            st.dataframe(top5[['후원자명', '누적후원금']].style.format({'누적후원금':'{:,.0f}'}), hide_index=True)
-            st.markdown(f"⭐ **연속 후원자 ({len(loyal_donors)}명)**")
-            st.write(", ".join(loyal_donors['후원자명'].tolist()) if not loyal_donors.empty else "없음")
-            st.markdown(f"🎁 **일회성 후원자 ({len(one_time_donors)}명)**")
-            if not one_time_donors.empty:
-                st.dataframe(one_time_donors[['후원자명', '마지막후원일', '누적후원금']].sort_values('마지막후원일', ascending=False), hide_index=True, use_container_width=True)
-        with col_b:
-            st.markdown(f"⚠️ **불연속 후원자 (최근 6개월 기준, {len(irregular_donors)}명)**")
-            if not irregular_donors.empty:
-                st.dataframe(irregular_donors[['후원자명', '후원개월수', '마지막후원일', '누적후원금']].sort_values('마지막후원일', ascending=False).assign(마지막후원일=lambda x: x['마지막후원일'].dt.strftime('%Y-%m-%d')), hide_index=True, use_container_width=True)
-                st.caption("※ 2회 이상 후원했으나 비정기적으로 후원 중인 분들입니다.")
+            top5 = donor_stats.sort_values('누적후원액', ascending=False).head(5)
+            st.dataframe(top5[['후원자명', '누적후원액', '후원횟수']], hide_index=True)
+            
+        # 2. 연속 후원자
+        with col2:
+            st.markdown("⭐ **연속 후원자 (충성도 높음)**")
+            total_months = plot_df['날짜'].dt.to_period('M').nunique()
+            loyal_donors = donor_stats[donor_stats['후원개월수'] >= total_months * 0.8] # 80% 이상 참여
+            st.dataframe(loyal_donors[['후원자명', '누적후원액', '후원개월수']], hide_index=True)
+            
+        # 3. 일회성 및 불연속 후원자
+        st.markdown("🔍 **후원 유지 관리 대상**")
+        a1, a2 = st.columns(2)
+        with a1:
+            st.markdown("🎁 **일회성 후원자 (전체 기간 1회)**")
+            one_time = donor_stats[donor_stats['후원횟수'] == 1]
+            st.dataframe(one_time[['후원자명', '누적후원액', '마지막후원일']], hide_index=True)
+            
+        with a2:
+            st.markdown("⚠️ **불연속 후원자 (최근 6개월 내 활동)**")
+            six_months_ago = datetime.now() - pd.DateOffset(months=6)
+            irregular = donor_stats[
+                (donor_stats['후원횟수'] > 1) & 
+                (donor_stats['후원개월수'] < total_months * 0.5) &
+                (donor_stats['마지막후원일'] >= six_months_ago)
+            ]
+            st.dataframe(irregular[['후원자명', '마지막후원일', '후원개월수']], hide_index=True)
+    else:
+        st.info("통합 분석을 위한 데이터가 부족합니다.")
 
-else: # CRM 메뉴
-    st.title("👤 후원자 관계 관리 (CRM)")
+elif menu == "후원자 관계 관리(CRM)":
+    st.title("👤 후원자 관계 관리(CRM)")
     
-    # 전체 단체 데이터 통합 로드
     all_data = []
-    for org in st.session_state.config["organizations"]:
-        df_org = load_org_data(org)
+    for org in st.session_state.config['organizations']:
+        df_org = get_org_data(org)
         if not df_org.empty:
             df_org['단체'] = org
             all_data.append(df_org)
@@ -230,7 +337,6 @@ else: # CRM 메뉴
         st.info("데이터가 없습니다.")
     else:
         full_df = pd.concat(all_data)
-        # 'ㅎ원자명' 컬럼에 NaN이나 문자열이 아닌 값이 섞여 있을 수 있으므로 처리
         full_df['ㅎ원자명'] = full_df['ㅎ원자명'].fillna('미지정').astype(str)
         donors = sorted(full_df['ㅎ원자명'].unique())
         
@@ -239,12 +345,10 @@ else: # CRM 메뉴
         selected_donor = st.selectbox("후원자 선택", donors)
         
         if selected_donor:
-            # 날짜 정렬 시 에러 방지를 위해 datetime 변환 보장
             donor_df = full_df[full_df['ㅎ원자명'] == selected_donor].copy()
             donor_df['날짜'] = pd.to_datetime(donor_df['날짜'], errors='coerce')
             donor_df = donor_df.dropna(subset=['날짜']).sort_values('날짜', ascending=False)
             
-            # 후원자 마스터 정보 로드/초기화
             if selected_donor not in st.session_state.crm:
                 st.session_state.crm[selected_donor] = {"tags": [], "memo": ""}
             
@@ -256,7 +360,6 @@ else: # CRM 메뉴
                 st.write(f"🔹 **총 후원 횟수:** {len(donor_df[donor_df['수입 OR 대변']>0])}회")
                 st.write(f"🔹 **누적 후원액:** {donor_df['수입 OR 대변'].sum():,.0f}원")
                 
-                # 후원 기간 계산 (최초 후원일 ~ 마지막 후원일)
                 if not donor_df[donor_df['수입 OR 대변']>0].empty:
                     actual_donor_df = donor_df[donor_df['수입 OR 대변']>0]
                     first_date = actual_donor_df['날짜'].min().strftime('%Y-%m-%d')
@@ -268,48 +371,40 @@ else: # CRM 메뉴
                 # 태그 관리
                 existing_tags = donor_info.get("tags", [])
                 new_tags = st.multiselect("태그 관리", ["기업", "개인", "정기", "일시", "핵심", "VIP", "잠재이탈"], default=existing_tags)
-                if new_tags != existing_tags:
-                    st.session_state.crm[selected_donor]["tags"] = new_tags
-                    save_crm_data(st.session_state.crm)
-                    st.success("태그 저장됨")
+                
+                # 메모 관리
+                new_memo = st.text_area("활동 메모", value=donor_info.get("memo", ""), height=150)
+                
+                if st.button("CRM 정보 저장"):
+                    st.session_state.crm[selected_donor] = {"tags": new_tags, "memo": new_memo}
+                    save_crm(st.session_state.crm)
+                    st.success("정보가 저장되었습니다.")
             
             with c2:
-                # 메모 관리
-                memo = st.text_area("활동 메모 (상담 내역, 특이사항 등)", value=donor_info.get("memo", ""), height=150)
-                if st.button("메모 저장"):
-                    st.session_state.crm[selected_donor]["memo"] = memo
-                    save_crm_data(st.session_state.crm)
-                    st.success("메모 저장됨")
-            
-            st.markdown("---")
-            st.subheader(f"📜 {selected_donor} 후원 이력")
-            st.dataframe(donor_df[['날짜', '단체', '계정과목', '수입 OR 대변', '적요']].style.format({'수입 OR 대변':'{:,.0f}'}), use_container_width=True, hide_index=True)
+                st.markdown("📜 **전체 후원 이력 (통합)**")
+                st.dataframe(donor_df[['날짜', '단체', '계정과목', '수입 OR 대변', '적요']], hide_index=True, use_container_width=True)
 
-        # 2. 태그 기반 스마트 필터링
+        # 2. 태그별 후원자 그룹 필터링
         st.divider()
-        st.subheader("🎯 태그 기반 타겟팅 분석")
-        all_available_tags = set()
+        st.subheader("🎯 태그별 후원자 그룹 필터링")
+        all_tags = set()
         for info in st.session_state.crm.values():
-            all_available_tags.update(info.get("tags", []))
-            
-        filter_tag = st.multiselect("필터링할 태그 선택", list(all_available_tags))
+            all_tags.update(info.get("tags", []))
         
-        if filter_tag:
-            target_donors = []
-            for d_name, d_info in st.session_state.crm.items():
-                if any(t in d_info.get("tags", []) for t in filter_tag):
-                    # 데이터 합산
-                    d_data = full_df[full_df['ㅎ원자명'] == d_name]
-                    target_donors.append({
-                        "후원자명": d_name,
-                        "태그": ", ".join(d_info.get("tags", [])),
-                        "누적후원금": d_data['수입 OR 대변'].sum(),
-                        "마지막후원": d_data['날짜'].max().strftime('%Y-%m-%d')
+        filter_tag = st.selectbox("필터링할 태그 선택", ["전체"] + sorted(list(all_tags)))
+        
+        if filter_tag != "전체":
+            filtered_donors = [name for name, info in st.session_state.crm.items() if filter_tag in info.get("tags", [])]
+            if filtered_donors:
+                st.write(f"'{filter_tag}' 태그를 가진 후원자: {len(filtered_donors)}명")
+                res_list = []
+                for name in filtered_donors:
+                    d_df = full_df[full_df['ㅎ원자명'] == name]
+                    res_list.append({
+                        "후원자명": name,
+                        "누적후원액": d_df['수입 OR 대변'].sum(),
+                        "최근후원일": d_df['날짜'].max().strftime('%Y-%m-%d')
                     })
-            
-            if target_donors:
-                st.dataframe(pd.DataFrame(target_donors).style.format({'누적후원금':'{:,.0f}'}), use_container_width=True, hide_index=True)
+                st.table(pd.DataFrame(res_list).style.format({"누적후원액": "{:,.0f}"}))
             else:
-                st.write("해당 태그를 가진 후원자가 없습니다.")
-        else:
-            st.info("태그를 선택하여 특정 그룹을 분석해 보세요.")
+                st.info("해당 태그를 가진 후원자가 없습니다.")
