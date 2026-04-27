@@ -289,27 +289,26 @@ elif menu == "통합 분석 리포트":
         }).reset_index()
         donor_stats.columns = ['후원자명', '누적후원액', '후원횟수', '최초후원일', '마지막후원일', '후원개월수']
         
-        # 1. TOP 5
-        col1, col2 = st.columns(2)
+        # 1. TOP 5 & 2. 연속 후원자 (여백 확보를 위해 간격 조정)
+        col1, spacer, col2 = st.columns([1, 0.2, 1])
         with col1:
             st.markdown("🏆 **누적 후원 TOP 5**")
             top5 = donor_stats.sort_values('누적후원액', ascending=False).head(5)
-            st.dataframe(top5[['후원자명', '누적후원액', '후원횟수']], hide_index=True)
+            st.dataframe(top5[['후원자명', '누적후원액', '후원횟수']], hide_index=True, use_container_width=True)
             
-        # 2. 연속 후원자
         with col2:
             st.markdown("⭐ **연속 후원자 (충성도 높음)**")
             total_months = plot_df['날짜'].dt.to_period('M').nunique()
             loyal_donors = donor_stats[donor_stats['후원개월수'] >= total_months * 0.8] # 80% 이상 참여
-            st.dataframe(loyal_donors[['후원자명', '누적후원액', '후원개월수']], hide_index=True)
+            st.dataframe(loyal_donors[['후원자명', '누적후원액', '후원개월수']], hide_index=True, use_container_width=True)
             
         # 3. 일회성 및 불연속 후원자
         st.markdown("🔍 **후원 유지 관리 대상**")
-        a1, a2 = st.columns(2)
+        a1, a_spacer, a2 = st.columns([1, 0.2, 1])
         with a1:
             st.markdown("🎁 **일회성 후원자 (전체 기간 1회)**")
             one_time = donor_stats[donor_stats['후원횟수'] == 1]
-            st.dataframe(one_time[['후원자명', '누적후원액', '마지막후원일']], hide_index=True)
+            st.dataframe(one_time[['후원자명', '누적후원액', '마지막후원일']], hide_index=True, use_container_width=True)
             
         with a2:
             st.markdown("⚠️ **불연속 후원자 (최근 6개월 내 활동)**")
@@ -319,7 +318,7 @@ elif menu == "통합 분석 리포트":
                 (donor_stats['후원개월수'] < total_months * 0.5) &
                 (donor_stats['마지막후원일'] >= six_months_ago)
             ]
-            st.dataframe(irregular[['후원자명', '마지막후원일', '후원개월수']], hide_index=True)
+            st.dataframe(irregular[['후원자명', '마지막후원일', '후원개월수']], hide_index=True, use_container_width=True)
     else:
         st.info("통합 분석을 위한 데이터가 부족합니다.")
 
